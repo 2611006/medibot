@@ -12,7 +12,9 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from dotenv import load_dotenv
 load_dotenv()
 
+# -----------------------------
 # Step 1: Setup Groq LLM
+# -----------------------------
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GROQ_MODEL_NAME = "llama-3.1-8b-instant"
 
@@ -23,9 +25,9 @@ llm = ChatGroq(
     api_key=GROQ_API_KEY,
 )
 
-# Step 2: Connect LLM with FAISS and Create chain
-
-# ✅ FIXED: Absolute FAISS path (robust)
+# -----------------------------
+# Step 2: FAISS (AUTO LOAD / CREATE)
+# -----------------------------
 BASE_DIR = Path(__file__).resolve().parent
 DB_FAISS_PATH = BASE_DIR / "vectorstore" / "db_faiss"
 
@@ -33,16 +35,32 @@ embedding_model = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-print("Loading FAISS from:", DB_FAISS_PATH)
-print("FAISS exists:", DB_FAISS_PATH.exists())
+def load_or_create_faiss():
+    """
+    Loads FAISS if exists.
+    Creates FAISS automatically if missing (Streamlit-safe).
+    """
+    if DB_FAISS_PATH.exists():
+        print("✅ Loading existing FAISS index...")
+        return FAISS.load_local(
+            str(DB_FAISS_PATH),
+            embedding_model,
+            allow_dangerous_deserialization=True
+        )
+    else:
+        print("⚠️ FAISS not found. Creating new index...")
 
-db = FAISS.load_local(
-    str(DB_FAISS_PATH),
-    embedding_model,
-    allow_dangerous_deserialization=True
-)
+        # Import here to avoid circular import
+        from create_memory_for_llm import create_vectorstore
 
-# Step 3: Build RAG chain
+        db = create_vectorstore()
+        return db
+
+db = load_or_create_faiss()
+
+# -----------------------------
+# Step 3: Build RAG Chain
+# -----------------------------
 retrieval_qa_chat_prompt = hub.pull("langchain-ai/retrieval-qa-chat")
 
 combine_docs_chain = create_stuff_documents_chain(
@@ -55,7 +73,9 @@ rag_chain = create_retrieval_chain(
     combine_docs_chain
 )
 
-# Step 4: Run query
+# -----------------------------
+# Step 4: Run Query
+# -----------------------------
 user_query = input("Write Query Here: ")
 response = rag_chain.invoke({"input": user_query})
 
