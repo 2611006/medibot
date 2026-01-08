@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from langchain_groq import ChatGroq
 from langchain_community.vectorstores import FAISS
@@ -13,8 +14,7 @@ load_dotenv()
 
 # Step 1: Setup Groq LLM
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-GROQ_MODEL_NAME = "llama-3.1-8b-instant"  # Change to any supported Groq model
-
+GROQ_MODEL_NAME = "llama-3.1-8b-instant"
 
 llm = ChatGroq(
     model=GROQ_MODEL_NAME,
@@ -23,29 +23,43 @@ llm = ChatGroq(
     api_key=GROQ_API_KEY,
 )
 
-
 # Step 2: Connect LLM with FAISS and Create chain
 
-# Load Database
-DB_FAISS_PATH = "vectorstore/db_faiss"
-embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-db = FAISS.load_local(DB_FAISS_PATH, embedding_model, allow_dangerous_deserialization=True)
+# ✅ FIXED: Absolute FAISS path (robust)
+BASE_DIR = Path(__file__).resolve().parent
+DB_FAISS_PATH = BASE_DIR / "vectorstore" / "db_faiss"
+
+embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
+)
+
+print("Loading FAISS from:", DB_FAISS_PATH)
+print("FAISS exists:", DB_FAISS_PATH.exists())
+
+db = FAISS.load_local(
+    str(DB_FAISS_PATH),
+    embedding_model,
+    allow_dangerous_deserialization=True
+)
 
 # Step 3: Build RAG chain
 retrieval_qa_chat_prompt = hub.pull("langchain-ai/retrieval-qa-chat")
 
-# Document combiner chain (stuff documents into prompt)
-combine_docs_chain = create_stuff_documents_chain(llm, retrieval_qa_chat_prompt)
+combine_docs_chain = create_stuff_documents_chain(
+    llm,
+    retrieval_qa_chat_prompt
+)
 
-# Retrieval chain (retriever + doc combiner)
-rag_chain = create_retrieval_chain(db.as_retriever(search_kwargs={'k': 3}), combine_docs_chain)
+rag_chain = create_retrieval_chain(
+    db.as_retriever(search_kwargs={"k": 3}),
+    combine_docs_chain
+)
 
+# Step 4: Run query
+user_query = input("Write Query Here: ")
+response = rag_chain.invoke({"input": user_query})
 
-
-# Now invoke with a single query
-user_query=input("Write Query Here: ")
-response=rag_chain.invoke({'input': user_query})
-print("RESULT: ", response["answer"])
+print("\nRESULT:", response["answer"])
 print("\nSOURCE DOCUMENTS:")
 for doc in response["context"]:
     print(f"- {doc.metadata} -> {doc.page_content[:200]}...")
